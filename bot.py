@@ -6,16 +6,19 @@ from openai import OpenAI
 
 print("📦 Kalle Bot wird gestartet...")
 
+# Discord Intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 client = discord.Client(intents=intents)
 
+# ENV Variablen laden
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 WEB_SERVICE_URL = os.getenv("WEB_SERVICE_URL")
 
+# OpenAI Client
 client_openai = OpenAI(api_key=OPENAI_API_KEY)
 user_greeted = set()
 
@@ -53,6 +56,7 @@ async def on_message(message):
         return
 
     try:
+        # GPT-Antwort abrufen
         res = client_openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -62,11 +66,13 @@ async def on_message(message):
         )
         reply = res.choices[0].message.content.strip()
 
+        # Wenn GPT unsicher ist → Webservice fragen
         if "ich bin mir nicht sicher" in reply.lower() or len(reply) < 20:
             ws = requests.post(f"{WEB_SERVICE_URL}/learn", json={"question": user_input})
             if ws.status_code == 200:
                 reply = ws.json().get("answer", "Ich konnte nichts finden.")
 
+        # Antwort senden & speichern
         formatted = (
             f"📊 **Kalles Antwort**\n\n"
             f"{reply}\n\n"
@@ -75,13 +81,22 @@ async def on_message(message):
         )
         antwort = await message.channel.send(formatted)
 
-        # Beide Nachrichten löschen
+        # Warte 5 Minuten → lösche Antwort und Frage
         await asyncio.sleep(300)
         await antwort.delete()
         await message.delete()
 
     except Exception as e:
         print("❌ Fehler im Bot:", e)
-        fehler = await message.channel.send("⚠️ Ein Fehler ist aufgetreten. Versuch es bitte später nochmal.")
-        await asyncio.sleep(300)
-        await fehler.delete()
+        try:
+            fehler = await message.channel.send("⚠️ Ein Fehler ist aufgetreten. Versuch es bitte später nochmal.")
+            await asyncio.sleep(300)
+            await fehler.delete()
+        except:
+            pass
+
+# Start
+try:
+    client.run(DISCORD_TOKEN)
+except Exception as e:
+    print("❌ Fehler beim Starten des Bots:", e)
