@@ -36,7 +36,7 @@ async def on_message(message):
     user_id = message.author.id
     user_input = message.content.strip()
 
-    # Begrüßung bei erstmaligem Schreiben
+    # Begrüßung (nur einmal pro User)
     if user_id not in user_greeted:
         user_greeted.add(user_id)
         greeting = await message.channel.send(
@@ -48,7 +48,7 @@ async def on_message(message):
             "• Marktpsychologie, Sessions, Gann, usw.\n\n"
             "Wie kann ich dir helfen?"
         )
-        await asyncio.sleep(300)  # 5 Minuten warten
+        await asyncio.sleep(300)
         await greeting.delete()
         return
 
@@ -74,13 +74,14 @@ async def on_message(message):
             f"🤖 *Möchtest du noch etwas wissen? Frag mich einfach weiter!*"
         )
         antwort = await message.channel.send(formatted)
-        await asyncio.sleep(300)  # 5 Minuten warten
+
+        # Beide Nachrichten löschen
+        await asyncio.sleep(300)
         await antwort.delete()
+        await message.delete()
 
     except Exception as e:
         print("❌ Fehler im Bot:", e)
         fehler = await message.channel.send("⚠️ Ein Fehler ist aufgetreten. Versuch es bitte später nochmal.")
         await asyncio.sleep(300)
         await fehler.delete()
-
-client.run(DISCORD_TOKEN)
