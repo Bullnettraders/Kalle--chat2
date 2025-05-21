@@ -3,7 +3,7 @@ import os
 import requests
 import asyncio
 from openai import OpenAI
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 print("📦 Kalle Bot wird gestartet...")
 
@@ -31,13 +31,24 @@ user_limits = {}
 MAX_REQUESTS_PER_USER_PER_DAY = 5
 
 def can_user_call_openai(user_id):
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     if user_id not in user_limits or user_limits[user_id]["date"] != today:
         user_limits[user_id] = {"count": 0, "date": today}
     return user_limits[user_id]["count"] < MAX_REQUESTS_PER_USER_PER_DAY
 
 def increment_user_call(user_id):
     user_limits[user_id]["count"] += 1
+
+# Funktion: löscht alle Nachrichten eines Users im Channel (außer im Log-Channel)
+async def delete_user_messages(channel, user_id, limit=100):
+    if channel.id == LOG_CHANNEL_ID:
+        return
+    async for msg in channel.history(limit=limit):
+        if msg.author.id == user_id:
+            try:
+                await msg.delete()
+            except:
+                pass
 
 @client.event
 async def on_ready():
@@ -50,7 +61,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.channel.id != CHANNEL_ID or message.author.bot:
+    if message.author.bot or message.channel.id != CHANNEL_ID:
         return
 
     user_id = message.author.id
@@ -96,7 +107,7 @@ async def on_message(message):
         )
         reply = res.choices[0].message.content.strip()
 
-        # Fallback bei unsicherer GPT-Antwort
+        # Fallback bei unklarer GPT-Antwort
         if "ich bin mir nicht sicher" in reply.lower() or len(reply) < 20:
             ws = requests.post(f"{WEB_SERVICE_URL}/learn", json={"question": user_input})
             if ws.status_code == 200:
@@ -125,13 +136,25 @@ async def on_message(message):
                 f"📆 Heute gesendet: {user_limits[user_id]['count']}/{MAX_REQUESTS_PER_USER_PER_DAY}"
             )
 
+        # Nach 5 Minuten alle User-Nachrichten im Bot-Channel löschen
         await asyncio.sleep(300)
-        await antwort.delete()
-        await message.delete()
+        await delete_user_messages(message.channel, user_id, limit=100)
 
     except Exception as e:
         print("❌ Fehler im Bot:", e)
         try:
+            if "insufficient_quota" in str(e).lower():
+                log_channel = client.get_channel(LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send("🚨 GPT-Anfrage blockiert: Quota überschritten. Bitte Guthaben prüfen.")
+                return
+            elif "rate_limit" in str(e).lower():
+                log_channel = client.get_channel(LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send("⚠️ GPT-Anfrage blockiert: Rate-Limit erreicht.")
+                await asyncio.sleep(5)
+                return
+
             fehler = await message.channel.send("⚠️ Ein Fehler ist aufgetreten. Versuch es bitte später nochmal.")
             await asyncio.sleep(300)
             await fehler.delete()
