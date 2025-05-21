@@ -3,7 +3,7 @@ import os
 import requests
 import asyncio
 from openai import OpenAI
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 print("📦 Kalle Bot wird gestartet...")
 
@@ -30,6 +30,7 @@ user_greeted = set()
 user_limits = {}
 MAX_REQUESTS_PER_USER_PER_DAY = 5
 
+# Prüft, ob ein User noch GPT verwenden darf
 def can_user_call_openai(user_id):
     today = datetime.now(timezone.utc).date()
     if user_id not in user_limits or user_limits[user_id]["date"] != today:
@@ -39,7 +40,7 @@ def can_user_call_openai(user_id):
 def increment_user_call(user_id):
     user_limits[user_id]["count"] += 1
 
-# Funktion: löscht alle Nachrichten eines Users im Channel (außer im Log-Channel)
+# Löscht alle Nachrichten eines Users (außer im Log-Channel)
 async def delete_user_messages(channel, user_id, limit=100):
     if channel.id == LOG_CHANNEL_ID:
         return
@@ -49,6 +50,14 @@ async def delete_user_messages(channel, user_id, limit=100):
                 await msg.delete()
             except:
                 pass
+
+# Löscht alle Nachrichten im Log-Channel (Admin-Befehl)
+async def clear_log_channel(channel):
+    async for msg in channel.history(limit=1000):
+        try:
+            await msg.delete()
+        except:
+            pass
 
 @client.event
 async def on_ready():
@@ -61,11 +70,23 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    if message.author.bot or message.channel.id != CHANNEL_ID:
+    if message.author.bot:
         return
 
     user_id = message.author.id
     user_input = message.content.strip()
+
+    # 🔒 Admin-Befehl im Log-Channel: "!clearlogs"
+    if message.channel.id == LOG_CHANNEL_ID and user_input.lower() == "!clearlogs":
+        if message.author.guild_permissions.administrator:
+            confirm = await message.channel.send("🧹 Lösche alle Log-Nachrichten...")
+            await clear_log_channel(message.channel)
+        else:
+            await message.channel.send("⛔ Du hast keine Berechtigung.")
+        return
+
+    if message.channel.id != CHANNEL_ID:
+        return
 
     # Begrüßung
     if user_id not in user_greeted:
@@ -126,7 +147,7 @@ async def on_message(message):
         estimated_tokens = len(user_input) // 4 + 200
         increment_user_call(user_id)
 
-        # Logging im Überwachungskanal
+        # Logging
         log_channel = client.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             await log_channel.send(
@@ -136,9 +157,9 @@ async def on_message(message):
                 f"📆 Heute gesendet: {user_limits[user_id]['count']}/{MAX_REQUESTS_PER_USER_PER_DAY}"
             )
 
-        # Nach 5 Minuten alle User-Nachrichten im Bot-Channel löschen
+        # Nachrichten löschen nach 5 Minuten
         await asyncio.sleep(300)
-        await delete_user_messages(message.channel, user_id, limit=100)
+        await delete_user_messages(message.channel, user_id)
 
     except Exception as e:
         print("❌ Fehler im Bot:", e)
